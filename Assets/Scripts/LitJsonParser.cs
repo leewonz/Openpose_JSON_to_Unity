@@ -11,34 +11,44 @@ public class LitJsonParser : MonoBehaviour {
     [Header("데이터가 있는 폴더의 경로를 넣으시오.")]
     public string path;
 
-    int fileIndex = 0;
-
     //[SerializeField]
     List<PoseData> currentPoseDatas;
 
-    readonly int scanResWidth = 1920;
-    readonly int scanResHeight = 1080;
-    float scale = 0.02f;
+    [Header("스캔 해상도")]
+    public int scanResWidth = 1920;
+    public int scanResHeight = 1080;
 
-    public readonly bool logEnabled = false;
+    [Header("비율")]
+    public float scale = 0.02f;
 
-	// Use this for initialization
-	void Start () {
+    [Header("좌우, 상하 반전")]
+    public bool flipX;
+    public bool flipY;
+
+    [Header("로그를 띄운다")]
+    public bool logEnabled = false;
+
+    [Header("몇번째 파일까지 읽었는가?")]
+    public int fileIndex = -1;
+
+    [Header("프레임당 파일을 읽는 횟수")]
+    public int fileCheckCount = 1;
+
+    void Start () {
         
     }
 	
-	// Update is called once per frame
 	void Update () {
 
         Profiler.BeginSample("ReadFile");
-        string poseText = ReadFile(path);
+        string poseText = ReadFile(path, fileCheckCount);
         Profiler.EndSample();
 
         Profiler.BeginSample("ReadPose");
         if (poseText != "")
         {
             currentPoseDatas = ReadPose(poseText);
-            fileIndex++;
+            RemapPose(ref currentPoseDatas);
         }
         Profiler.EndSample();
     }
@@ -53,6 +63,8 @@ public class LitJsonParser : MonoBehaviour {
         ScreenText.SetAll(15, TextAnchor.UpperLeft, Color.black);
         ScreenText.DrawFPS();
     }
+
+
 
     List<PoseData> ReadPose(string text) //json 텍스트에서 포즈 읽어오기
     {
@@ -73,65 +85,8 @@ public class LitJsonParser : MonoBehaviour {
             personIndex++;
 
             PoseData personPoseData = new PoseData();
-
-            /*
-            foreach (LitJson.JsonData kp in (people["pose_keypoints_2d"] as IList))
-            {
-                kpIndex++;
-
-                //Make debug text
-                if (logEnabled)
-                {
-                debugText = debugText + string.Format(
-                    "[person <b>{0}</b> / kp <b>{1}</b>] : <b>{2}</b>\n",
-                    personIndex, kpIndex, kp);
-                }
-
-                // Add poseData
-                if (kpIndex % 3 == 0)
-                {
-                    //print(kp.GetJsonType().ToString());
-                    if (kp.GetJsonType() == JsonType.Double)
-                    {
-                        personPoseData.positions[kpIndex / 3].x = (float)(double)kp;
-                    }
-                    else if (kp.GetJsonType() == JsonType.Int)
-                    {
-                        personPoseData.positions[kpIndex / 3].x = (int)kp;
-                    }
-                    //print("x " + personPoseData.positions[personIndex / 3].x);
-                    //personPoseData.positions[personIndex / 3].x = (float)(double)kp;
-                    }
-                if (kpIndex % 3 == 1)
-                {
-                    if (kp.GetJsonType() == JsonType.Double)
-                    {
-                        personPoseData.positions[kpIndex / 3].y = (float)(double)kp;
-                    }
-                    else if (kp.GetJsonType() == JsonType.Int)
-                    {
-                        personPoseData.positions[kpIndex / 3].y = (int)kp;
-                    }
-                    //print("y " + personPoseData.positions[personIndex / 3].y);
-                    //personPoseData.positions[personIndex / 3].y = (float)(double)kp;
-                }
-                if (kpIndex % 3 == 2)
-                {
-                    if (kp.GetJsonType() == JsonType.Double)
-                    {
-                        personPoseData.confidences[kpIndex / 3] = (float)(double)kp;
-                    }
-                    else if (kp.GetJsonType() == JsonType.Int)
-                    {
-                        personPoseData.confidences[kpIndex / 3] = (int)kp;
-                    }
-                    //print("conf " + personPoseData.confidences[personIndex / 3]);
-                    //personPoseData.confidences[personIndex / 3] = (float)(double)kp;
-                }
-            }
-            */
-
-            foreach (LitJson.JsonData kp in (people["pose_keypoints_2d"] as IList)) {; }
+            
+            //foreach (LitJson.JsonData kp in (people["pose_keypoints_2d"] as IList)) {; }
             for(int i = 0; i < (people["pose_keypoints_2d"] as IList).Count; i++)
             {
                 LitJson.JsonData kp = (LitJson.JsonData)(people["pose_keypoints_2d"] as IList)[i];
@@ -209,42 +164,79 @@ public class LitJsonParser : MonoBehaviour {
         //print(string.Format("kp : {0}", poseData["people"][0]["pose_keypoints_2d"][0]));
     }
 
-    string ReadFile(string directory) //디렉토리에서 json 파일 읽어오기
+    string ReadFile(string directory, int tries = 1) //디렉토리에서 json 파일 읽어오기
     {
-        //"000000000001_keypoints.json"
+        string path = "";
+        string result = "";
 
+        int updates = 0;
+        //bool filesEnded = false;
+
+        //tries만큼 실행
+        while (tries > 0)
+        {
+            tries--;
+
+            path = MakePath(directory, fileIndex + 1);
+            if (File.Exists(path))
+            {
+                updates++;
+                fileIndex++; //클래스 전역 변수 fileIndex 증가
+                
+            }
+            else
+            {
+                //filesEnded = true;
+                break;
+            }
+        }
+
+        if (updates != 0)//새 파일이 하나라도 발견되면 (무조건 출력)
+        {
+            path = MakePath(directory, fileIndex); //현재 인덱스 사용
+            result = System.IO.File.ReadAllText(path);
+            //출력
+            return result;
+        }
+        else //새 파일이 없다면
+        {
+            //Warning 발생, 빈 문자열 출력
+            if (logEnabled)
+            {
+                Debug.LogWarning("Cannot Find " + path);
+            }
+            return "";
+        }
+    }
+
+    string MakePath(string directory, int index) //읽어올 파일의 경로 문자열 만들기
+    {
+        // FORMAT : "000000000001_keypoints.json"
         string pathFile = "";
-        string text = "";
 
         //Make file path string
-        string fileIndexStr = fileIndex.ToString();
+        string fileIndexStr = index.ToString();
 
         for (int i = 12 - fileIndexStr.Length; i > 0; i--)
         {
             pathFile = pathFile + "0";
         }
-        pathFile = directory + Path.DirectorySeparatorChar + pathFile + fileIndexStr + "_keypoints.json";
+        return directory + Path.DirectorySeparatorChar + pathFile + fileIndexStr + "_keypoints.json";
+    }
 
-        if (!File.Exists(pathFile))
+    void RemapPose(ref List<PoseData> poseDatas)
+    {
+        for (int i = 0; i < poseDatas.Count; i++)
         {
-            Debug.LogWarning("Cannot Find " + pathFile);
-            return "";
+            for (int j = 0; j < poseDatas[i].positions.Length; j++)
+            {
+                //print(i + "/ " + j + "/ " + poseDatas[i].positions[j]);
+
+                poseDatas[i].positionsMapped[j] = new Vector2(
+                    (poseDatas[i].positions[j].x - scanResWidth / 2.0f) * scale * (flipX ? -1f : 1f),
+                    (poseDatas[i].positions[j].y - scanResHeight / 2.0f) * scale * (flipY ? -1f : 1f));
+            }
         }
-        else
-        {
-            //Read file
-            text = System.IO.File.ReadAllText(pathFile);
-            
-        }
-        return text;
-
-
-        //System.IO.File.ReadAllText()
-
-        //StreamReader reader = new StreamReader(path);
-        //Debug.Log(reader.ReadToEnd());
-        //reader.Close();
-
     }
 
     void DebugDrawPose(List<PoseData> poseDatas) // Scene 뷰에서 각 점의 위치 출력
@@ -273,12 +265,6 @@ public class LitJsonParser : MonoBehaviour {
             {
                 for (int j = 0; j < poseDatas[i].positions.Length; j++)
                 {
-                    //print(i + "/ " + j + "/ " + poseDatas[i].positions[j]);
-                    
-                    poseDatas[i].positionsMapped[j] = new Vector2(
-                        (poseDatas[i].positions[j].x - scanResWidth / 2.0f) * scale,
-                        (poseDatas[i].positions[j].y - scanResHeight / 2.0f) * scale);
-
                     Gizmos.color = new Color(poseDatas[i].confidences[j], poseDatas[i].confidences[j], poseDatas[i].confidences[j]);
 
                     Gizmos.DrawSphere(new Vector3(poseDatas[i].positionsMapped[j].x,
@@ -338,6 +324,8 @@ public class LitJsonParser : MonoBehaviour {
 
 
     }
+
+
 
     [System.Serializable]
     public class PoseData // 한 사람의 포즈 데이터를 가짐
